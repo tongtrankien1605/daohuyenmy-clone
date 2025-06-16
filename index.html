@@ -99,22 +99,10 @@
                 font-size: 18px;
                 padding: 20px;
             }
-            .bandwidth-container {
+            .refresh-btn {
                 position: fixed;
                 top: 10px;
-                right: 10px;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-            .bandwidth-text {
-                color: white;
-                font-size: 12px;
-                background: rgba(0, 0, 0, 0.7);
-                padding: 5px 10px;
-                border-radius: 5px;
-            }
-            .refresh-btn {
+                right: 35px;
                 background: rgba(0, 0, 0, 0.7);
                 color: white;
                 border: none;
@@ -157,24 +145,13 @@
             <div class="loading">Đang tải...</div>
         </div>
 
-        <div class="bandwidth-container">
-            <span id="bandwidthDisplay" class="bandwidth-text">0.00 MB / 100GB</span>
-            <button class="refresh-btn" onclick="clearCacheAndReload()">🔄 Reload Video 🔄</button>
-        </div>
+        <button class="refresh-btn" onclick="clearCacheAndReload()">🔄 Reload Video 🔄</button>
 
         <script>
-            const GITHUB_PAGES_BASE = "https://tongtrankien1605.github.io";
-            const REPOSITORY_ROOT = "/daohuyenmy/";
-            const BASE_URL = GITHUB_PAGES_BASE + REPOSITORY_ROOT;
-
-            const RAW_GITHUB_BASE = "https://raw.githubusercontent.com/tongtrankien1605";
-            const RAW_REPOSITORY_ROOT = "/daohuyenmy/main/";
-            const RAW_BASE_URL = RAW_GITHUB_BASE + RAW_REPOSITORY_ROOT;
-
+            // Định nghĩa đường dẫn
+            const REPOSITORY_ROOT = "/daohuyenmy-clone/";
+            const VIDEOS_JSON_URL = `${REPOSITORY_ROOT}videos.json`;
             const CACHE_NAME = "tiktok-clone-v1";
-            const BANDWIDTH_KEY = "monthlyBandwidth";
-            const MONTH_START_KEY = "monthStart";
-            const MAX_BANDWIDTH = 100 * 1024 * 1024 * 1024; // 100GB in bytes
 
             let videoUrls = [];
             let currentIndex = 0;
@@ -184,6 +161,18 @@
             const CACHE_KEY = "videoUrls";
             const CACHE_EXPIRY_KEY = "videoUrlsExpiry";
             const CACHE_DURATION = 30 * 60 * 1000; // 30 phút
+            const FIRST_VISIT_KEY = "firstVisit";
+
+            // Kiểm tra lần truy cập đầu tiên
+            window.addEventListener("load", () => {
+                const isFirstVisit = localStorage.getItem(FIRST_VISIT_KEY);
+                if (!isFirstVisit) {
+                    localStorage.setItem(FIRST_VISIT_KEY, "true");
+                    window.location.reload();
+                } else {
+                    loadVideos();
+                }
+            });
 
             function isValidVideoUrl(url) {
                 return /\.(mp4|webm|ogg)$/i.test(url);
@@ -192,53 +181,6 @@
             function isCacheValid() {
                 const expiry = localStorage.getItem(CACHE_EXPIRY_KEY);
                 return expiry && Date.now() < parseInt(expiry);
-            }
-
-            function getMonthlyBandwidth() {
-                const monthStart = localStorage.getItem(MONTH_START_KEY);
-                const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-                const currentMonthStart = new Date(currentMonth + "-01").toISOString();
-
-                if (!monthStart || monthStart < currentMonthStart) {
-                    localStorage.setItem(MONTH_START_KEY, currentMonthStart);
-                    localStorage.setItem(BANDWIDTH_KEY, "0");
-                    return 0;
-                }
-
-                return parseInt(localStorage.getItem(BANDWIDTH_KEY) || "0", 10);
-            }
-
-            function updateBandwidthDisplay(bandwidth) {
-                localStorage.setItem(BANDWIDTH_KEY, bandwidth.toString());
-                const display = document.getElementById("bandwidthDisplay");
-                if (display) {
-                    const cappedBandwidth = Math.min(bandwidth, MAX_BANDWIDTH);
-                    const formatted = (cappedBandwidth / (1024 * 1024)).toFixed(2);
-                    display.textContent = `${formatted} MB / 100GB`;
-                }
-            }
-
-            let totalBandwidth = getMonthlyBandwidth();
-            updateBandwidthDisplay(totalBandwidth);
-
-            if ("serviceWorker" in navigator) {
-                navigator.serviceWorker.addEventListener("message", (event) => {
-                    if (event.data.type === "BANDWIDTH_UPDATE") {
-                        let currentBandwidth = getMonthlyBandwidth();
-                        totalBandwidth = currentBandwidth + event.data.incrementalBandwidth; // Cộng phần tăng thêm
-                        updateBandwidthDisplay(totalBandwidth);
-                        console.log(`Client: Current bandwidth ${formatBandwidth(currentBandwidth)}, Incremental ${formatBandwidth(event.data.incrementalBandwidth)}, New total ${formatBandwidth(totalBandwidth)}`);
-                    }
-                });
-
-                navigator.serviceWorker.register(`${REPOSITORY_ROOT}sw.js`).then(
-                    (registration) => {
-                        console.log("Service Worker đăng ký thành công:", registration.scope);
-                    },
-                    (error) => {
-                        console.error("Lỗi đăng ký Service Worker:", error);
-                    }
-                );
             }
 
             async function loadVideos(isReload = false) {
@@ -252,7 +194,7 @@
                         const cachedVideos = localStorage.getItem(CACHE_KEY);
                         if (cachedVideos) {
                             const cachedData = JSON.parse(cachedVideos);
-                            const response = await fetch(`${RAW_BASE_URL}videos.json?v=${Date.now()}`);
+                            const response = await fetch(`${VIDEOS_JSON_URL}?v=${Date.now()}`);
                             if (response.ok) {
                                 const newData = await response.json();
                                 if (newData.version === cachedData.version) {
@@ -270,10 +212,12 @@
 
                 if (!shouldUseCache) {
                     try {
-                        const response = await fetch(`${RAW_BASE_URL}videos.json?v=${Date.now()}`);
+                        const response = await fetch(`${VIDEOS_JSON_URL}?v=${Date.now()}`);
                         if (!response.ok) throw new Error("Lỗi tải videos.json");
                         const data = await response.json();
-                        videoUrls = data.videos;
+                        videoUrls = data.videos
+                            .filter((v) => v.url && isValidVideoUrl(v.url))
+                            .map((v) => ({ ...v, url: v.url }));
                         localStorage.setItem(CACHE_KEY, JSON.stringify({ version: data.version, videos: videoUrls }));
                         localStorage.setItem(CACHE_EXPIRY_KEY, Date.now() + CACHE_DURATION);
                     } catch (e) {
@@ -294,6 +238,7 @@
                     currentIndex = Math.floor(Math.random() * videoUrls.length);
                 }
 
+                // Kiểm tra video hiện tại
                 const currentVideo = videoUrls[currentIndex];
                 try {
                     const res = await fetch(currentVideo.url, { method: "GET", mode: "cors", credentials: "omit" });
@@ -314,7 +259,7 @@
                     slide.className = "video-slide";
                     slide.innerHTML = `
                         <div class="video-wrapper">
-                            <video src="${video.url}" playsinline preload="${index === 1 ? "metadata" : "none"}"></video>
+                            <video src="${video.url}" playsinline preload="${index === 1 ? "auto" : "none"}" autoplay></video>
                             <div class="progress-bar"><div class="progress"></div></div>
                             <div class="info"><p>${video.description || "Không có mô tả"}</p></div>
                         </div>
@@ -346,13 +291,12 @@
                     const registration = await navigator.serviceWorker.getRegistration(`${REPOSITORY_ROOT}sw.js`);
                     if (registration) {
                         await registration.unregister();
+                        await caches.delete(CACHE_NAME);
                     }
                 }
-                await caches.delete(CACHE_NAME);
                 localStorage.removeItem(CACHE_KEY);
                 localStorage.removeItem(CACHE_EXPIRY_KEY);
-                localStorage.removeItem(BANDWIDTH_KEY);
-                localStorage.removeItem(MONTH_START_KEY);
+                localStorage.removeItem(FIRST_VISIT_KEY);
                 window.location.reload();
             }
 
@@ -366,6 +310,20 @@
                 if (observer) observer.disconnect();
                 const videos = document.querySelectorAll("video");
                 let hideControlsTimeout;
+
+                // Bật âm thanh sau tương tác người dùng
+                document.addEventListener(
+                    "click",
+                    () => {
+                        videos.forEach((video) => {
+                            if (video.muted) {
+                                video.muted = false;
+                                console.log("Đã bật âm thanh cho video:", video.src);
+                            }
+                        });
+                    },
+                    { once: true }
+                );
 
                 observer = new IntersectionObserver(
                     (entries) => {
@@ -493,7 +451,18 @@
                 container.scrollTo({ top: prevSlide, behavior: "smooth" });
             }
 
-            loadVideos();
+            if ("serviceWorker" in navigator) {
+                window.addEventListener("load", () => {
+                    navigator.serviceWorker.register(`${REPOSITORY_ROOT}sw.js`).then(
+                        (registration) => {
+                            console.log("Service Worker đăng ký thành công:", registration.scope);
+                        },
+                        (error) => {
+                            console.error("Lỗi đăng ký Service Worker:", error);
+                        }
+                    );
+                });
+            }
         </script>
     </body>
 </html>
