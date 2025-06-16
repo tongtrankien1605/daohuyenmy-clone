@@ -1,11 +1,11 @@
 const CACHE_NAME = "tiktok-clone-v1";
 
 const GITHUB_PAGES_BASE = "https://tongtrankien1605.github.io";
-const REPOSITORY_ROOT = "/daohuyenmy-clone/";
+const REPOSITORY_ROOT = "/daohuyenmy/";
 const BASE_URL = GITHUB_PAGES_BASE + REPOSITORY_ROOT;
 
 const RAW_GITHUB_BASE = "https://raw.githubusercontent.com/tongtrankien1605";
-const RAW_REPOSITORY_ROOT = "/daohuyenmy-clone/main/";
+const RAW_REPOSITORY_ROOT = "/daohuyenmy/main/";
 const RAW_BASE_URL = RAW_GITHUB_BASE + RAW_REPOSITORY_ROOT;
 
 const STATIC_ASSETS = [
@@ -26,18 +26,20 @@ function formatBandwidth(bytes) {
 }
 
 function sendBandwidthUpdate(size) {
-    totalBandwidth += size;
+    totalBandwidth += size; // Cộng dồn trong phiên
     self.clients.matchAll().then((clients) => {
         clients.forEach((client) => {
             client.postMessage({
                 type: "BANDWIDTH_UPDATE",
-                totalBandwidth: totalBandwidth
+                incrementalBandwidth: size // Chỉ gửi phần tăng thêm
             });
         });
     });
+    console.log(`Service Worker: Tăng bandwidth ${formatBandwidth(size)}, Tổng trong phiên ${formatBandwidth(totalBandwidth)}`);
 }
 
 self.addEventListener("install", (event) => {
+    totalBandwidth = 0; // Reset khi cài đặt
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             return cache.addAll(STATIC_ASSETS);
@@ -47,6 +49,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+    totalBandwidth = 0; // Reset khi kích hoạt
     const cacheWhitelist = [CACHE_NAME];
     event.waitUntil(
         caches.keys().then((cacheNames) =>

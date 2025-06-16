@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Đào Huyền My - clone</title>
+        <title>TikTok Clone by Tống Trần Kiên</title>
         <link rel="icon" type="image/x-icon" href="favicon.ico" />
         <style>
             body {
@@ -164,11 +164,11 @@
 
         <script>
             const GITHUB_PAGES_BASE = "https://tongtrankien1605.github.io";
-            const REPOSITORY_ROOT = "/daohuyenmy-clone/";
+            const REPOSITORY_ROOT = "/daohuyenmy/";
             const BASE_URL = GITHUB_PAGES_BASE + REPOSITORY_ROOT;
 
             const RAW_GITHUB_BASE = "https://raw.githubusercontent.com/tongtrankien1605";
-            const RAW_REPOSITORY_ROOT = "/daohuyenmy-clone/main/";
+            const RAW_REPOSITORY_ROOT = "/daohuyenmy/main/";
             const RAW_BASE_URL = RAW_GITHUB_BASE + RAW_REPOSITORY_ROOT;
 
             const CACHE_NAME = "tiktok-clone-v1";
@@ -212,7 +212,8 @@
                 localStorage.setItem(BANDWIDTH_KEY, bandwidth.toString());
                 const display = document.getElementById("bandwidthDisplay");
                 if (display) {
-                    const formatted = (bandwidth / (1024 * 1024)).toFixed(2); // MB
+                    const cappedBandwidth = Math.min(bandwidth, MAX_BANDWIDTH);
+                    const formatted = (cappedBandwidth / (1024 * 1024)).toFixed(2);
                     display.textContent = `${formatted} MB / 100GB`;
                 }
             }
@@ -223,10 +224,21 @@
             if ("serviceWorker" in navigator) {
                 navigator.serviceWorker.addEventListener("message", (event) => {
                     if (event.data.type === "BANDWIDTH_UPDATE") {
-                        totalBandwidth = getMonthlyBandwidth() + event.data.totalBandwidth;
+                        let currentBandwidth = getMonthlyBandwidth();
+                        totalBandwidth = currentBandwidth + event.data.incrementalBandwidth; // Cộng phần tăng thêm
                         updateBandwidthDisplay(totalBandwidth);
+                        console.log(`Client: Current bandwidth ${formatBandwidth(currentBandwidth)}, Incremental ${formatBandwidth(event.data.incrementalBandwidth)}, New total ${formatBandwidth(totalBandwidth)}`);
                     }
                 });
+
+                navigator.serviceWorker.register(`${REPOSITORY_ROOT}sw.js`).then(
+                    (registration) => {
+                        console.log("Service Worker đăng ký thành công:", registration.scope);
+                    },
+                    (error) => {
+                        console.error("Lỗi đăng ký Service Worker:", error);
+                    }
+                );
             }
 
             async function loadVideos(isReload = false) {
@@ -334,11 +346,13 @@
                     const registration = await navigator.serviceWorker.getRegistration(`${REPOSITORY_ROOT}sw.js`);
                     if (registration) {
                         await registration.unregister();
-                        await caches.delete(CACHE_NAME);
                     }
                 }
+                await caches.delete(CACHE_NAME);
                 localStorage.removeItem(CACHE_KEY);
                 localStorage.removeItem(CACHE_EXPIRY_KEY);
+                localStorage.removeItem(BANDWIDTH_KEY);
+                localStorage.removeItem(MONTH_START_KEY);
                 window.location.reload();
             }
 
@@ -477,19 +491,6 @@
                 const container = document.getElementById("videoContainer");
                 const prevSlide = container.scrollTop - window.innerHeight;
                 container.scrollTo({ top: prevSlide, behavior: "smooth" });
-            }
-
-            if ("serviceWorker" in navigator) {
-                window.addEventListener("load", () => {
-                    navigator.serviceWorker.register(`${REPOSITORY_ROOT}sw.js`).then(
-                        (registration) => {
-                            console.log("Service Worker đăng ký thành công:", registration.scope);
-                        },
-                        (error) => {
-                            console.error("Lỗi đăng ký Service Worker:", error);
-                        }
-                    );
-                });
             }
 
             loadVideos();
