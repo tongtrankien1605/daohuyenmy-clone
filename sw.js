@@ -1,6 +1,5 @@
 const CACHE_NAME = "tiktok-clone-v1";
 
-// Định nghĩa BASE URL
 const GITHUB_PAGES_BASE = "https://tongtrankien1605.github.io";
 const REPOSITORY_ROOT = "/daohuyenmy-clone/";
 const BASE_URL = GITHUB_PAGES_BASE + REPOSITORY_ROOT;
@@ -9,19 +8,39 @@ const RAW_GITHUB_BASE = "https://raw.githubusercontent.com/tongtrankien1605";
 const RAW_REPOSITORY_ROOT = "/daohuyenmy-clone/main/";
 const RAW_BASE_URL = RAW_GITHUB_BASE + RAW_REPOSITORY_ROOT;
 
+const STATIC_ASSETS = [
+    `${BASE_URL}favicon.ico`,
+    `${BASE_URL}index.html`,
+    `${BASE_URL}offline.html`,
+    `${BASE_URL}placeholder.jpg`,
+    `${BASE_URL}videos.json`,
+    `${BASE_URL}sw.js`
+];
+
+let totalBandwidth = 0;
+
+function formatBandwidth(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function sendBandwidthUpdate(size) {
+    totalBandwidth += size;
+    self.clients.matchAll().then((clients) => {
+        clients.forEach((client) => {
+            client.postMessage({
+                type: "BANDWIDTH_UPDATE",
+                totalBandwidth: totalBandwidth
+            });
+        });
+    });
+}
+
 self.addEventListener("install", (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll([
-                // `${BASE_URL}videos`, // Uncomment nếu cần cache thư mục videos
-                `${BASE_URL}favicon.ico`,
-                `${BASE_URL}index.html`,
-                `${BASE_URL}offline.html`,
-                `${BASE_URL}placeholder.jpg`,
-                // `${BASE_URL}README.md`, // Uncomment nếu cần
-                `${BASE_URL}sw.js`,
-                `${BASE_URL}videos.json`
-            ]);
+            return cache.addAll(STATIC_ASSETS);
         })
     );
     self.skipWaiting();
@@ -30,43 +49,74 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
     const cacheWhitelist = [CACHE_NAME];
     event.waitUntil(
-        caches.keys().then(cacheNames => 
-            Promise.all(cacheNames.map(cacheName => 
-                !cacheWhitelist.includes(cacheName) && caches.delete(cacheName)
-            ))
+        caches.keys().then((cacheNames) =>
+            Promise.all(
+                cacheNames.map((cacheName) => {
+                    if (!cacheWhitelist.includes(cacheName)) {
+                        return caches.delete(cacheName);
+                    }
+                })
+            )
         ).then(() => self.clients.claim())
     );
 });
 
 self.addEventListener("fetch", (event) => {
     const requestUrl = new URL(event.request.url);
-    const cacheKey = new Request(requestUrl.origin + requestUrl.pathname, {
-        method: event.request.method,
-        headers: event.request.headers,
-        mode: 'cors',
-        cache: 'default',
-        credentials: 'omit'
-    });
+
+    if (/\.(mp4|webm|ogg)$/i.test(requestUrl.pathname)) {
+        event.respondWith(
+            fetch(event.request, { mode: "cors", credentials: "omit" })
+                .then(async (networkResponse) => {
+                    const contentLength = networkResponse.headers.get("Content-Length");
+                    let size = contentLength ? parseInt(contentLength, 10) : 0;
+                    if (!size) {
+                        const blob = await networkResponse.clone().blob();
+                        size = blob.size;
+                    }
+                    sendBandwidthUpdate(size);
+                    console.log(
+                        `Tải từ server: ${requestUrl.href} | Kích thước: ${formatBandwidth(size)} | Tổng băng thông: ${formatBandwidth(totalBandwidth)}`
+                    );
+                    return networkResponse;
+                })
+                .catch(() => {
+                    console.error("Fetch failed:", requestUrl.href);
+                    return caches.match(`${BASE_URL}offline.html`);
+                })
+        );
+        return;
+    }
 
     event.respondWith(
-        caches.open(CACHE_NAME).then(cache => {
-            return cache.match(cacheKey).then(cachedResponse => {
+        caches.open(CACHE_NAME).then((cache) => {
+            return cache.match(event.request).then((cachedResponse) => {
                 if (cachedResponse) {
-                    console.log("From cache:", event.request.url);
+                    console.log(`Từ cache: ${requestUrl.href}`);
                     return cachedResponse;
                 }
 
-                return fetch(event.request, { mode: 'cors', credentials: 'omit' }).then(networkResponse => {
-                    if (networkResponse.ok && (event.request.url.includes(BASE_URL) || event.request.url.includes(RAW_BASE_URL))) {
-                        console.log("Caching:", event.request.url);
-                        const clonedResponse = networkResponse.clone();
-                        cache.put(cacheKey, clonedResponse);
-                    }
-                    return networkResponse;
-                }).catch(err => {
-                    console.error("Fetch failed:", err);
-                    return caches.match(`${BASE_URL}offline.html`);
-                });
+                return fetch(event.request, { mode: "cors", credentials: "omit" })
+                    .then(async (networkResponse) => {
+                        if (networkResponse.ok && requestUrl.href.startsWith(BASE_URL)) {
+                            const contentLength = networkResponse.headers.get("Content-Length");
+                            let size = contentLength ? parseInt(contentLength, 10) : 0;
+                            if (!size) {
+                                const blob = await networkResponse.clone().blob();
+                                size = blob.size;
+                            }
+                            sendBandwidthUpdate(size);
+                            console.log(
+                                `Tải từ server: ${requestUrl.href} | Kích thước: ${formatBandwidth(size)} | Tổng băng thông: ${formatBandwidth(totalBandwidth)}`
+                            );
+                            cache.put(event.request, networkResponse.clone());
+                        }
+                        return networkResponse;
+                    })
+                    .catch(() => {
+                        console.error("Fetch failed:", requestUrl.href);
+                        return caches.match(`${BASE_URL}offline.html`);
+                    });
             });
         })
     );
